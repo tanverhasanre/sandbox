@@ -1,0 +1,58 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+
+# All Vagrant configuration is done below. The "2" in Vagrant.configure
+# configures the configuration version (we support older styles for
+# backwards compatibility). Please don't change it unless you know what
+# you're doing.
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/focal64"
+
+  # Create a forwarded port mapping which allows access to a specific port
+  # within the machine from a port on the host machine. In the example below,
+  # accessing "localhost:8080" will access port 80 on the guest machine.
+  # NOTE: This will enable public access to the opened port
+  config.vm.network "forwarded_port", guest: 8000, host: 8000
+  
+  # Create a public network, which generally matched to bridged network.
+  # Bridged networks make the machine appear as another physical device on
+  # your network.
+  config.vm.network "public_network"
+  # Share an additional folder to the guest VM. The first argument is
+  # the path on the host to the actual folder. The second argument is
+  # the path on the guest to mount the folder. And the optional third
+  # argument is a set of non-required options.
+  config.vm.synced_folder "./", "/home/vagrant/"
+
+  config.vm.provider "virtualbox" do |vb|
+    # Display the VirtualBox GUI when booting the machine
+    vb.gui = true
+  
+    # Customize the amount of memory on the VM:
+    vb.memory = "1024"
+  end
+  
+
+  config.vm.provision "shell", inline: <<-SHELL
+    # Update package lists
+    sudo apt-get update
+
+    # Install Node.js and npm
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+
+    # Install pm2 process manager globally
+    sudo npm install -g pm2
+
+    # Copy server.js , script.js and package.json from the host to the VM
+    cp ./server.js /home/vagrant/server.js
+    cp ./script.js /home/vagrant/script.js
+    cp ./script.js /home/vagrant/package.json
+
+    # Start the server.js script using pm2
+    cd /home/vagrant
+    pm2 start server.js --name my-server
+  SHELL
+
+
+end

@@ -1,0 +1,12 @@
+{
+  "name": "package",
+  "version": "1.0.0",
+  "description": "",
+  "main": "pre-install.js",
+  "scripts": {
+    "start": "node pre-install.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

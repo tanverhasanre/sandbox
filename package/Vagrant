@@ -1,0 +1,20 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "ubuntu/focal64"
+  config.vm.network "forwarded_port", guest: 80, host: 8080
+
+  config.vm.provision "shell", inline: <<-SHELL
+    # Update package lists
+    sudo apt-get update
+
+    # Install Node.js and npm
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+
+    # Copy the pre-install.js file into the VM
+    cp /vagrant/pre-install.js /home/vagrant/pre-install.js
+
+    # Run the pre-install.js script
+    cd /home/vagrant
+    node pre-install.js
+  SHELL
+end
